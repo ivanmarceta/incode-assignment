@@ -1,0 +1,21 @@
+alertmanager:
+  enabled: false
+
+grafana:
+  adminPassword: admin123
+  service:
+    type: ClusterIP
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: monitoring
+
+prometheus:
+  service:
+    type: ClusterIP
+  prometheusSpec:
+    retention: 12h
+    scrapeInterval: 15s
+    evaluationInterval: 15s

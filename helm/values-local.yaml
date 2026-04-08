@@ -1,0 +1,23 @@
+image:
+  repository: incode-snake-backend
+  tag: local
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+db:
+  createSecret: true
+  host: postgres
+  port: "5432"
+  name: demoapp
+  username: appuser
+  password: apppassword
+  sslMode: disable
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    additionalLabels:
+      release: monitoring

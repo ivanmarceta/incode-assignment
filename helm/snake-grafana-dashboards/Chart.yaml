@@ -1,0 +1,6 @@
+apiVersion: v2
+name: snake-grafana-dashboards
+description: Grafana dashboards for the Incode Snake API.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
