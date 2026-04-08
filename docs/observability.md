@@ -1,24 +1,24 @@
 # Observability Guide
 
-This document is a compact walkthrough for demonstrating Prometheus and Grafana during the interview.
+This document summarizes the monitoring surface exposed by the application and the recommended Prometheus queries and Grafana panels for demonstration purposes.
 
 ## Local forwarded URLs
 
-These URLs work while the local test stack and its port-forwards are running.
+These URLs are valid while the local test stack and the associated port-forwards are running.
 
 - frontend: `http://localhost:4173`
 - backend: `http://127.0.0.1:18080`
 - Prometheus: `http://127.0.0.1:19090`
 - Grafana: `http://127.0.0.1:13000`
 
-Grafana default login:
+Grafana authentication:
 
 - username: `admin`
-- password: `admin123`
+- password: read from the generated Kubernetes secret
 
-The default dashboard is provisioned automatically from [`helm/snake-grafana-dashboards`](C:\Users\ivanm\projekti\incode\incode-assignment\helm\snake-grafana-dashboards) when monitoring is installed.
+The provisioned dashboard is sourced from [`helm/snake-grafana-dashboards`](../helm/snake-grafana-dashboards).
 
-## Backend metrics exposed on `/metrics`
+## Backend metrics
 
 The backend exports:
 
@@ -27,14 +27,12 @@ The backend exports:
 - leaderboard reads
 - score submission results
 - score rejection reasons
-- high score upsert outcomes
-- DB query counts and DB query durations
+- high-score upsert outcomes
+- database query counts and durations
 - PostgreSQL pool gauges
-- default Node.js runtime/process metrics
+- default Node.js runtime and process metrics
 
-## Best Prometheus queries
-
-These are the most useful live demo queries.
+## Recommended Prometheus queries
 
 ### Request rate
 
@@ -93,7 +91,7 @@ sum by (reason) (
 )
 ```
 
-### High score upsert outcomes
+### High-score upsert outcomes
 
 ```promql
 sum by (result) (
@@ -101,7 +99,7 @@ sum by (result) (
 )
 ```
 
-### DB query rate by operation
+### Database query rate by operation
 
 ```promql
 sum by (operation, result) (
@@ -109,7 +107,7 @@ sum by (operation, result) (
 )
 ```
 
-### P95 DB query latency by operation
+### P95 database query latency by operation
 
 ```promql
 histogram_quantile(
@@ -120,7 +118,7 @@ histogram_quantile(
 )
 ```
 
-### DB pool gauges
+### Database pool gauges
 
 ```promql
 snake_api_db_connection_pool_clients
@@ -134,86 +132,65 @@ snake_api_db_connection_pool_idle
 snake_api_db_connection_pool_waiting
 ```
 
-## Suggested Grafana panels
+## Recommended Grafana panels
 
-Keep the dashboard small and easy to explain.
+### API request rate
 
-### Panel 1: API request rate
-
-- query: request rate query above
+- query: request rate
 - visualization: time series
-- why: shows user traffic and route activity
 
-### Panel 2: API error rate
+### API error rate
 
-- query: error rate query above
+- query: error rate
 - visualization: time series or stat
-- why: shows failed requests immediately
 
-### Panel 3: API p95 latency
+### API P95 latency
 
-- query: p95 API latency query above
+- query: P95 API latency
 - visualization: time series
-- why: shows responsiveness under load
 
-### Panel 4: Score submissions by result
+### Score submissions by result
 
 - query: score submissions by result
 - visualization: stacked bar or time series
-- why: shows successful vs invalid submissions
 
-### Panel 5: User upserts by result
+### User upserts by result
 
-- query: high score upsert outcomes
-- visualization: bar chart
-- why: shows created vs updated vs unchanged players
+- query: high-score upsert outcomes
+- visualization: bar chart or time series
 
-### Panel 6: DB query rate by operation
+### Database query rate by operation
 
-- query: DB query rate by operation
+- query: database query rate by operation
 - visualization: time series
-- why: shows what the backend is asking from PostgreSQL
 
-### Panel 7: DB p95 latency by operation
+### Database P95 latency by operation
 
-- query: p95 DB query latency by operation
+- query: P95 database query latency by operation
 - visualization: time series
-- why: shows whether the database is the bottleneck
 
-### Panel 8: DB pool pressure
+### Database pool state
 
 - queries:
   - `snake_api_db_connection_pool_clients`
   - `snake_api_db_connection_pool_idle`
   - `snake_api_db_connection_pool_waiting`
 - visualization: time series or stat
-- why: shows connection pool health
 
-## Good live demo sequence
+## Demonstration sequence
 
-1. Open the frontend and Prometheus.
-2. Show the Prometheus target for the snake API is `UP`.
-3. Run a couple of Prometheus queries:
-   - request rate
-   - score submissions by result
-   - DB query rate by operation
-4. Open Grafana and show the dashboard panels.
-5. Play one game and submit a score.
-6. Submit the same username again with a lower score.
-7. Submit the same username again with a higher score.
-8. Optionally trigger one invalid submission.
-9. Refresh the dashboard and explain:
-   - traffic increased
-   - business metrics changed
-   - DB metrics changed
-   - health stayed green
+1. Confirm that the Prometheus target for the snake API is `UP`.
+2. Review request rate, score submissions, and database query rate in Prometheus.
+3. Open Grafana and review the provisioned dashboard.
+4. Submit a valid score through the frontend.
+5. Submit the same username with a lower score.
+6. Submit the same username with a higher score.
+7. Optionally submit an invalid payload to exercise rejection metrics.
+8. Refresh the dashboard and confirm that traffic, business, and database metrics changed as expected.
 
-## Interview framing
+## Summary
 
-Useful summary:
-
-- availability is covered by `/healthz`
+- availability is covered through `/healthz`
 - Prometheus scrapes `/metrics` through a `ServiceMonitor`
-- app metrics cover HTTP, business flow, and DB dependency behavior
-- Grafana turns those into a fast operational view
-- for a larger system, alerts and long-term dashboards would be the next step
+- the metrics set covers HTTP behavior, business behavior, and database behavior
+- Grafana provides a concise operational view suitable for demonstration and discussion

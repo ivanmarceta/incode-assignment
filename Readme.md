@@ -1,8 +1,8 @@
 # Incode SRE Take-Home
 
-This repository contains a cost-conscious AWS infrastructure design plus a small demo application with persistent highscores. The infrastructure layer is managed with Terraform, while the Kubernetes application layer is packaged with Helm. A separate local Minikube workflow is included so the backend, PostgreSQL, and frontend can be exercised without AWS access.
+This repository contains a draft solution for the Incode SRE take-home assessment. The AWS infrastructure layer is defined with Terraform. The Kubernetes application layer and monitoring stack are defined with Helm.
 
-## Current layout
+## Repository layout
 
 ```text
 .
@@ -29,10 +29,8 @@ This repository contains a cost-conscious AWS infrastructure design plus a small
 |   |-- monitoring-values.yaml
 |   |-- values-aws.yaml
 |   |-- values-local.yaml
-|   `-- snake-api/
-|       |-- Chart.yaml
-|       |-- values.yaml
-|       `-- templates/
+|   |-- snake-api/
+|   `-- snake-grafana-dashboards/
 |-- localtesting/
 |   |-- config.js.example
 |   |-- overlay/
@@ -44,25 +42,29 @@ This repository contains a cost-conscious AWS infrastructure design plus a small
 |   |-- eks/
 |   |-- network/
 |   `-- rds/
-|-- scripts/
-|   `-- bootstrap.ps1
+|-- .github/
+|   `-- workflows/
+|       |-- application-deploy.yml
+|       `-- terraform.yml
 |-- .gitignore
 `-- Readme.md
 ```
 
-## Target design
+## Architecture summary
 
-- AWS VPC across two availability zones
-- Public, private, and database subnets
-- Amazon EKS with a small managed node group optimized for low cost
-- PostgreSQL on Amazon RDS, reachable from the cluster but not public
-- Static snake frontend hosted separately
-- Backend API deployed as a Kubernetes workload
+- AWS VPC spanning two availability zones
+- public, private, and database subnet tiers
+- Amazon EKS with a low-cost managed node group
+- Amazon RDS for PostgreSQL, reachable from the application tier only
+- static frontend hosted separately from the cluster
+- backend API deployed as the Kubernetes workload
 - Prometheus and Grafana deployed with Helm
+
+Additional architecture detail is documented in [`docs/architecture.md`](docs/architecture.md).
 
 ## Naming and tagging
 
-Resources are named from `project` and `environment` using:
+Resources follow the naming pattern:
 
 ```text
 <project>-<environment>-<component>
@@ -78,48 +80,99 @@ Standard AWS tags are applied through the provider `default_tags` block:
 
 ## Terraform
 
-`envs/dev` is the Terraform entry point and wires:
+The Terraform entry point is [`envs/dev`](envs/dev). It composes the following modules:
 
 - `modules/network`
 - `modules/eks`
 - `modules/rds`
 
-This keeps the infrastructure modular while still being small enough to explain clearly in an interview.
+This keeps the infrastructure modular while remaining small enough to review and explain during the interview.
 
-## Helm deployment
+## GitHub Actions workflows
 
-The Kubernetes app layer is Helm-based.
+The repository uses separate workflows for infrastructure and application deployment:
 
-`helm/snake-api` contains the application chart for the backend API, including:
+- Terraform workflow: [`.github/workflows/terraform.yml`](.github/workflows/terraform.yml)
+- application deployment workflow: [`.github/workflows/application-deploy.yml`](.github/workflows/application-deploy.yml)
 
-- Deployment
-- Service
-- optional Secret creation
-- optional ServiceMonitor for Prometheus scraping
+Repository variables used by the workflows:
 
-Environment-specific values live in:
+- `TF_VAR_PROJECT`
+- `TF_VAR_ENVIRONMENT`
+- `TF_VAR_OWNER`
+- `TF_VAR_REPOSITORY`
+- `TF_VAR_AWS_REGION`
+- `TF_VAR_DATABASE_NAME`
+- `TF_VAR_DATABASE_USERNAME`
+- `K8S_NAMESPACE`
 
-- `helm/values-local.yaml`
-- `helm/values-aws.yaml`
+Optional repository variables for frontend publishing:
 
-Prometheus and Grafana use the official `prometheus-community/kube-prometheus-stack` chart with values in:
+- `FRONTEND_BUCKET_NAME`
+- `CLOUDFRONT_DISTRIBUTION_ID`
 
-- `helm/monitoring-values.yaml`
+Repository secrets used by the workflows:
 
-Provisioned Grafana dashboards are stored in:
+- `AWS_ROLE_ARN`
+- `GRAFANA_ADMIN_PASSWORD`
 
-- `helm/snake-grafana-dashboards`
+The application deployment workflow performs the following tasks:
 
-## Leaderboard model
+- builds and pushes the backend image to GHCR
+- discovers the EKS cluster and RDS instance from the configured naming convention
+- reads the AWS-managed RDS credential from Secrets Manager
+- creates or updates the Kubernetes secret consumed by the backend
+- deploys the backend via Helm
+- optionally deploys Prometheus, Grafana, and the provisioned dashboard
+- optionally publishes the static frontend to S3 and invalidates CloudFront
 
-The backend stores one row per player in PostgreSQL:
+## Helm
+
+The Kubernetes application layer is Helm-based.
+
+Charts in this repository:
+
+- [`helm/snake-api`](helm/snake-api) for the backend API
+- [`helm/snake-grafana-dashboards`](helm/snake-grafana-dashboards) for the provisioned Grafana dashboard
+
+Values files:
+
+- [`helm/values-local.yaml`](helm/values-local.yaml)
+- [`helm/values-aws.yaml`](helm/values-aws.yaml)
+- [`helm/monitoring-values.yaml`](helm/monitoring-values.yaml)
+
+Prometheus and Grafana are deployed through the `prometheus-community/kube-prometheus-stack` chart.
+
+## Application data model
+
+The backend stores one leaderboard row per username in PostgreSQL:
 
 - `id`
 - `username`
 - `highest_score`
 - `updated_at`
 
-`username` is unique. Submitting the same username again updates only the stored high score when the new score is higher than the existing one.
+Behavior:
+
+- `username` is unique
+- a new username creates a row
+- a lower subsequent score leaves the stored high score unchanged
+- a higher subsequent score updates the stored high score and timestamp
+
+## Secrets handling
+
+For AWS, the RDS module is configured to use AWS-managed master credentials.
+
+This means:
+
+- Terraform creates the RDS instance
+- AWS generates the master password
+- AWS stores that password in Secrets Manager
+- Terraform exposes the secret ARN through `rds_master_user_secret_arn`
+
+This avoids storing a database password in the repository or Terraform variables.
+
+Local testing uses disposable demo credentials only for the Minikube workflow.
 
 ## Metrics and observability
 
@@ -128,110 +181,56 @@ The backend exposes:
 - `/healthz`
 - `/metrics`
 
-Metrics are generated with `prom-client` and include:
+The exported metrics include:
 
-- process/runtime default metrics
-- HTTP request count
-- HTTP request duration
-- score submission count
+- Node.js runtime and process metrics
+- HTTP request counts
+- HTTP request latency
+- health check results
+- leaderboard request counts
+- score submission outcomes
+- invalid submission reasons
+- high-score upsert outcomes
+- database query counts and latency
+- PostgreSQL connection pool gauges
 
-When the Helm chart is installed with ServiceMonitor enabled and `kube-prometheus-stack` is present, Prometheus can scrape the backend automatically.
-
-An interview-ready query and dashboard guide is included in [`docs/observability.md`](C:\Users\ivanm\projekti\incode\incode-assignment\docs\observability.md).
+Prometheus scrapes the backend through a `ServiceMonitor` when monitoring is enabled. Grafana consumes Prometheus as its data source. An observability guide with Prometheus queries and dashboard notes is available in [`docs/observability.md`](docs/observability.md).
 
 ## Local testing
 
-`localtesting/` contains the local-only workflow.
+The local validation workflow is documented in [`localtesting/README.md`](localtesting/README.md).
 
-It includes:
+The local setup includes:
 
-- local PostgreSQL manifests under `localtesting/overlay/`
-- a script to generate frontend config from the local backend URL
-- one-command start and stop scripts
-
-Quick local run:
-
-```powershell
-minikube start --driver=docker
-.\localtesting\start-localtest.ps1 -RebuildImage -WithMonitoring
-```
-
-This will:
-
-- start Minikube automatically if needed
-- rebuild the backend image in Minikube
-- apply the local PostgreSQL overlay
-- install the backend via Helm
-- optionally install Prometheus and Grafana via Helm
-- write `app/public/config.js`
-- start background port-forwards and the static frontend server
-- expose Grafana on `http://127.0.0.1:13000`
-- expose Prometheus on `http://127.0.0.1:19090`
-
-To stop everything:
-
-```powershell
-.\localtesting\stop-localtest.ps1 -DeleteNamespace
-```
-
-See `localtesting/README.md` for the detailed local runbook.
+- PostgreSQL inside Minikube
+- Helm deployment of the backend
+- optional Helm deployment of Prometheus and Grafana
+- helper scripts for frontend config generation and local start/stop
 
 ## AWS deployment flow
 
-Once AWS access is available:
-
-1. Configure AWS credentials.
-2. Create `terraform.tfvars` from `envs/dev/terraform.tfvars.example`.
-3. Run Terraform in `envs/dev`.
-4. Build and push the backend image.
-5. Create the `demo` namespace.
-6. Create the database secret from `helm/examples/aws-database-secret.yaml.example`.
-7. Deploy the backend:
-
-```powershell
-helm upgrade --install snake-api .\helm\snake-api -n demo -f .\helm\values-aws.yaml
-```
-
-8. Optionally install monitoring:
-
-```powershell
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-helm upgrade --install monitoring prometheus-community/kube-prometheus-stack -n monitoring --create-namespace -f .\helm\monitoring-values.yaml
-```
-
-9. If monitoring is installed, enable the backend `ServiceMonitor`:
-
-```powershell
-helm upgrade --install snake-api .\helm\snake-api -n demo -f .\helm\values-aws.yaml --set monitoring.serviceMonitor.enabled=true
-```
-
-10. Publish `app/public` to static hosting and provide the backend API URL in `config.js`.
-11. Verify reachability, health checks, metrics scraping, Grafana dashboards, and leaderboard persistence.
-
-Grafana default credentials from [`helm/monitoring-values.yaml`](C:\Users\ivanm\projekti\incode\incode-assignment\helm\monitoring-values.yaml):
-
-- username: `admin`
-- password: `admin123`
+1. Run the Terraform workflow at [`.github/workflows/terraform.yml`](.github/workflows/terraform.yml).
+2. Confirm that the workflow created the VPC, EKS cluster, RDS instance, and AWS-managed RDS credential.
+3. Run the application workflow at [`.github/workflows/application-deploy.yml`](.github/workflows/application-deploy.yml).
+4. Confirm that the application workflow:
+   - builds and publishes the backend image
+   - reads the RDS credential from Secrets Manager
+   - creates or updates the Kubernetes secret `demo-api-db`
+   - deploys the backend Helm release
+   - optionally deploys monitoring and dashboard provisioning
+   - optionally publishes the static frontend
+5. Verify:
+   - backend connectivity to RDS
+   - public application reachability
+   - `/healthz` and `/metrics`
+   - Prometheus scraping
+   - Grafana dashboard availability
+   - leaderboard persistence
 
 ## Assumptions
 
-- Initial region is `eu-central-1`
-- Two availability zones are sufficient for the exercise
-- Cost optimization is more important than high availability
-- The static frontend is better hosted outside Kubernetes
-- The backend is the Kubernetes workload required by the assignment
-- Secrets are not committed and should be injected at deploy time
-
-## Interview framing
-
-The solution intentionally favors clarity over unnecessary complexity:
-
-- Terraform for infra
-- Helm for app deployment
-- Helm for monitoring stack
-- static frontend outside the cluster
-- persistent backend backed by PostgreSQL
-- local Minikube path for fast validation
-
-That gives you a straightforward path to explain trade-offs, make changes live, and discuss how the design would evolve in a more production-heavy environment.
+- initial region is `eu-central-1`
+- two availability zones are sufficient for this exercise
+- cost efficiency is prioritized over high availability
+- the frontend is better hosted as a static site outside the cluster
+- the backend is the Kubernetes workload required by the assessment

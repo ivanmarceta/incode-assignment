@@ -32,3 +32,8 @@ output "rds_security_group_id" {
   description = "Security group protecting the RDS instance."
   value       = module.rds.security_group_id
 }
+
+output "rds_master_user_secret_arn" {
+  description = "Secrets Manager ARN for the AWS-managed RDS master credential."
+  value       = module.rds.master_user_secret_arn
+}

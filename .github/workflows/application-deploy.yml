@@ -1,0 +1,195 @@
+name: Application Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_monitoring:
+        description: Install or update Prometheus and Grafana
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      publish_frontend:
+        description: Publish the static frontend to S3 if bucket variables are configured
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  id-token: write
+  contents: read
+  packages: write
+
+env:
+  TF_VAR_project: ${{ vars.TF_VAR_PROJECT || 'incode-sre' }}
+  TF_VAR_environment: ${{ vars.TF_VAR_ENVIRONMENT || 'dev' }}
+  TF_VAR_owner: ${{ vars.TF_VAR_OWNER || github.actor }}
+  TF_VAR_repository: ${{ vars.TF_VAR_REPOSITORY || github.repository }}
+  TF_VAR_aws_region: ${{ vars.TF_VAR_AWS_REGION || 'eu-central-1' }}
+  TF_VAR_database_name: ${{ vars.TF_VAR_DATABASE_NAME || 'demoapp' }}
+  APP_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'demo' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30.0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.TF_VAR_aws_region }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE_REPO="ghcr.io/${OWNER_LC}/incode-snake-backend"
+          IMAGE_TAG="${GITHUB_SHA}"
+          docker build -t "${IMAGE_REPO}:${IMAGE_TAG}" -t "${IMAGE_REPO}:latest" ./backend
+          docker push "${IMAGE_REPO}:${IMAGE_TAG}"
+          docker push "${IMAGE_REPO}:latest"
+          {
+            echo "image_repo=${IMAGE_REPO}"
+            echo "image_tag=${IMAGE_TAG}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Discover AWS resource details
+        id: aws_resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME_PREFIX="${TF_VAR_project}-${TF_VAR_environment}"
+          CLUSTER_NAME="${NAME_PREFIX}-eks"
+          DB_IDENTIFIER="${NAME_PREFIX}-postgres"
+          RDS_ENDPOINT="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].Endpoint.Address' --output text)"
+          RDS_PORT="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].Endpoint.Port' --output text)"
+          RDS_SECRET_ARN="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)"
+          {
+            echo "cluster_name=${CLUSTER_NAME}"
+            echo "db_identifier=${DB_IDENTIFIER}"
+            echo "rds_endpoint=${RDS_ENDPOINT}"
+            echo "rds_port=${RDS_PORT}"
+            echo "rds_secret_arn=${RDS_SECRET_ARN}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region "${{ env.TF_VAR_aws_region }}" --name "${{ steps.aws_resources.outputs.cluster_name }}"
+
+      - name: Create or update application database secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          SECRET_JSON="$(aws secretsmanager get-secret-value --secret-id "${{ steps.aws_resources.outputs.rds_secret_arn }}" --query 'SecretString' --output text)"
+          DB_USER="$(echo "${SECRET_JSON}" | jq -r '.username')"
+          DB_PASSWORD="$(echo "${SECRET_JSON}" | jq -r '.password')"
+          kubectl create namespace "${APP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic demo-api-db \
+            --namespace "${APP_NAMESPACE}" \
+            --from-literal=host="${{ steps.aws_resources.outputs.rds_endpoint }}" \
+            --from-literal=port="${{ steps.aws_resources.outputs.rds_port }}" \
+            --from-literal=dbname="${TF_VAR_database_name}" \
+            --from-literal=username="${DB_USER}" \
+            --from-literal=password="${DB_PASSWORD}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install or update monitoring
+        if: github.event.inputs.deploy_monitoring == 'true'
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --create-namespace \
+            -f ./helm/monitoring-values.yaml \
+            --set grafana.adminPassword="${{ secrets.GRAFANA_ADMIN_PASSWORD }}"
+          kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=300s
+          helm upgrade --install snake-grafana-dashboards ./helm/snake-grafana-dashboards -n monitoring
+
+      - name: Deploy backend with Helm
+        shell: bash
+        run: |
+          set -euo pipefail
+          HELM_ARGS=(
+            upgrade
+            --install
+            snake-api
+            ./helm/snake-api
+            -n "${APP_NAMESPACE}"
+            --create-namespace
+            -f ./helm/values-aws.yaml
+            --set "image.repository=${{ steps.image.outputs.image_repo }}"
+            --set "image.tag=${{ steps.image.outputs.image_tag }}"
+          )
+
+          if [[ "${{ github.event.inputs.deploy_monitoring }}" == "true" ]]; then
+            HELM_ARGS+=(--set monitoring.serviceMonitor.enabled=true)
+          fi
+
+          helm "${HELM_ARGS[@]}"
+          kubectl rollout status deployment/snake-api -n "${APP_NAMESPACE}" --timeout=300s
+
+      - name: Publish static frontend to S3
+        if: github.event.inputs.publish_frontend == 'true' && vars.FRONTEND_BUCKET_NAME != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            API_HOST="$(kubectl get svc snake-api -n "${APP_NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}')"
+            if [[ -n "${API_HOST}" ]]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [[ -z "${API_HOST:-}" ]]; then
+            echo "Backend LoadBalancer endpoint was not assigned in time."
+            exit 1
+          fi
+
+          cat > app/public/config.js <<EOF
+          window.SNAKE_CONFIG = {
+            apiBaseUrl: "http://${API_HOST}"
+          };
+          EOF
+
+          aws s3 sync app/public "s3://${{ vars.FRONTEND_BUCKET_NAME }}/" --delete
+
+          if [[ -n "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" ]]; then
+            aws cloudfront create-invalidation --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/*"
+          fi
+
+      - name: Show deployment summary
+        shell: bash
+        run: |
+          echo "Cluster:    ${{ steps.aws_resources.outputs.cluster_name }}"
+          echo "Namespace:  ${APP_NAMESPACE}"
+          echo "DB secret:  demo-api-db"
+          echo "Image:      ${{ steps.image.outputs.image_repo }}:${{ steps.image.outputs.image_tag }}"

@@ -1,8 +1,8 @@
 # Architecture Notes
 
-This document describes the intended target architecture and the local validation setup used before AWS access is available.
+This document describes the target AWS architecture and the local validation topology used before cloud access is available.
 
-## Production shape
+## Target topology
 
 ```mermaid
 flowchart LR
@@ -23,85 +23,89 @@ The Terraform layer provisions:
 - private subnets for EKS worker nodes
 - isolated database subnets for RDS
 - an EKS cluster with a small managed node group
-- a PostgreSQL RDS instance reachable from the application tier only
+- a PostgreSQL RDS instance reachable only from the application tier
 
-The infrastructure entry point is [`envs/dev/main.tf`](C:\Users\ivanm\projekti\incode\incode-assignment\envs\dev\main.tf), which wires:
+The infrastructure entry point is [`envs/dev/main.tf`](../envs/dev/main.tf), which composes:
 
-- [`modules/network`](C:\Users\ivanm\projekti\incode\incode-assignment\modules\network)
-- [`modules/eks`](C:\Users\ivanm\projekti\incode\incode-assignment\modules\eks)
-- [`modules/rds`](C:\Users\ivanm\projekti\incode\incode-assignment\modules\rds)
+- [`modules/network`](../modules/network)
+- [`modules/eks`](../modules/eks)
+- [`modules/rds`](../modules/rds)
 
-## Application layer
+## Application topology
 
-The application is intentionally split into:
+The application is split into:
 
-- a static frontend in [`app/public/index.html`](C:\Users\ivanm\projekti\incode\incode-assignment\app\public\index.html)
-- a backend API in [`backend/server.js`](C:\Users\ivanm\projekti\incode\incode-assignment\backend\server.js)
+- a static frontend in [`app/public/index.html`](../app/public/index.html)
+- a backend API in [`backend/server.js`](../backend/server.js)
 
-Why this split:
-
-- the frontend is fully static and better hosted outside Kubernetes
-- the backend is the Kubernetes workload required by the exercise
-- the backend is the component that needs connectivity to PostgreSQL
-- this keeps the runtime surface area smaller than serving both layers from inside the cluster
+This separation keeps the static delivery path simple and reserves Kubernetes for the component that requires database connectivity and runtime compute.
 
 ## Kubernetes deployment model
 
-The Kubernetes app layer is Helm-based.
+The Kubernetes deployment layer is Helm-based.
 
-The backend chart lives in [`helm/snake-api`](C:\Users\ivanm\projekti\incode\incode-assignment\helm\snake-api) and includes:
+The backend chart is stored in [`helm/snake-api`](../helm/snake-api) and includes:
 
 - `Deployment`
 - `Service`
-- optional DB `Secret`
+- optional database `Secret`
 - optional `ServiceMonitor`
 
-Environment-specific values:
+Environment-specific values are defined in:
 
-- local: [`helm/values-local.yaml`](C:\Users\ivanm\projekti\incode\incode-assignment\helm\values-local.yaml)
-- AWS: [`helm/values-aws.yaml`](C:\Users\ivanm\projekti\incode\incode-assignment\helm\values-aws.yaml)
+- [`helm/values-local.yaml`](../helm/values-local.yaml)
+- [`helm/values-aws.yaml`](../helm/values-aws.yaml)
 
 ## Data model
 
-The backend stores leaderboard entries in PostgreSQL with:
+The leaderboard table stores:
 
 - `id`
 - `username`
 - `highest_score`
 - `updated_at`
 
-Behavior:
+Application behavior:
 
 - `username` is unique
-- a new username creates one row
-- submitting a lower score keeps the stored high score unchanged
-- submitting a higher score updates the stored high score and timestamp
+- a new username creates a row
+- a lower repeated score leaves the stored high score unchanged
+- a higher repeated score updates the stored high score and timestamp
 
-## Observability
+## Secrets model
+
+For AWS, the PostgreSQL master password is managed by AWS:
+
+- the RDS instance is configured with AWS-managed master credentials
+- AWS generates the password
+- AWS stores the password in Secrets Manager
+- Terraform exposes the resulting secret ARN
+
+This avoids storing the master password in repository-managed variables.
+
+## Observability model
 
 The backend exposes:
 
 - `/healthz`
 - `/metrics`
 
-Prometheus scrapes the application through a `ServiceMonitor` when enabled.
+Prometheus scrapes the backend through a `ServiceMonitor` when enabled. Grafana uses Prometheus as its data source. In AWS, the monitoring stack is deployed by the application workflow rather than the Terraform workflow.
 
-Grafana reads from Prometheus for visualization.
-
-Observed metric groups:
+Observed metric categories:
 
 - HTTP request volume and latency
-- health check success/error results
+- health check success and error results
 - leaderboard reads
 - score submission outcomes
 - invalid submission reasons
 - high-score upsert outcomes
-- DB query count and latency
-- DB connection pool gauges
+- database query count and latency
+- database connection pool gauges
 
-See [`docs/observability.md`](C:\Users\ivanm\projekti\incode\incode-assignment\docs\observability.md) for the live demo queries and dashboard plan.
+Additional observability detail is documented in [`docs/observability.md`](./observability.md).
 
-## Local validation setup
+## Local validation topology
 
 Before AWS access is available, the project can be validated locally with Minikube:
 
@@ -117,52 +121,49 @@ flowchart LR
     LocalGraf --> LocalProm
 ```
 
-Local-only assets live under [`localtesting`](C:\Users\ivanm\projekti\incode\incode-assignment\localtesting).
+The local validation assets are stored in [`localtesting`](../localtesting).
 
-That workflow:
+The local workflow:
 
 - starts Minikube
 - builds the backend image into Minikube
-- applies local PostgreSQL manifests
+- applies the local PostgreSQL manifests
 - installs the backend Helm chart
 - optionally installs `kube-prometheus-stack`
-- writes frontend config for local forwarding
-- starts local port-forwards for backend, Prometheus, and Grafana
+- writes frontend configuration for local forwarding
+- starts local port-forwards for the backend, Prometheus, and Grafana
 
-## Design choices and trade-offs
+## Design trade-offs
 
-### Why Terraform for infra
+### Terraform for infrastructure
 
-- keeps AWS resources reproducible
-- makes teardown straightforward
-- gives a clear source of truth for networking, EKS, and RDS
+- reproducible AWS resource definitions
+- clear source of truth for networking, EKS, and RDS
+- straightforward teardown and rebuild workflow
 
-### Why Helm for Kubernetes
+### Helm for Kubernetes deployment
 
-- cleaner parameterization than duplicating manifests
-- easier local vs AWS values management
-- natural fit for enabling `ServiceMonitor`
-- easier to explain as the application deployment unit
+- consistent parameterization across local and AWS environments
+- natural support for optional `ServiceMonitor` resources
+- cleaner packaging than duplicated raw manifests
 
-### Why not host the frontend in EKS
+### Static frontend outside EKS
 
-- the frontend is static
-- static hosting is cheaper and simpler
-- EKS is reserved for the backend/API workload that actually needs compute and DB access
+- lower runtime complexity
+- lower cost for the static tier
+- clearer separation between static delivery and stateful application logic
 
-### Why kube-prometheus-stack
+### kube-prometheus-stack
 
-- standard Prometheus Operator setup
+- standard Prometheus Operator deployment model
 - native `ServiceMonitor` support
-- easy Grafana integration
-- heavier than a minimal demo stack, but stronger from an SRE demonstration perspective
+- integrated Grafana workflow
+- heavier than a minimal monitoring deployment, but closer to a common production pattern
 
-## Interview summary
+## Summary
 
-Short version you can say out loud:
-
-- Terraform provisions the AWS foundation: VPC, EKS, and RDS.
+- Terraform manages the AWS foundation: VPC, EKS, and RDS.
 - The frontend is static and hosted separately.
 - The backend runs on Kubernetes and persists highscores in PostgreSQL.
 - Helm manages both the application deployment and the monitoring stack.
-- Prometheus scrapes application metrics, and Grafana visualizes HTTP, business, and database behavior.
+- Prometheus scrapes application metrics and Grafana visualizes HTTP, business, and database behavior.
