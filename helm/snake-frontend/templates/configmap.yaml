@@ -7,7 +7,7 @@ data:
 {{ .Files.Get "files/index.html" | indent 4 }}
   config.js: |
     window.SNAKE_CONFIG = {
-      apiBaseUrl: {{ .Values.config.apiBaseUrl | quote }}
+      apiBaseUrl: {{ .Values.config.apiBaseUrl }}
     };
   default.conf: |
     server {
