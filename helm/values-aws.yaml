@@ -14,7 +14,7 @@ app:
 
 db:
   createSecret: false
-  existingSecretName: demo-api-db
+  existingSecretName: snake-api-db
   sslMode: require
 
 monitoring:

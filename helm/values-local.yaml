@@ -11,7 +11,7 @@ db:
   createSecret: true
   host: postgres
   port: "5432"
-  name: demoapp
+  name: snake
   username: appuser
   password: apppassword
   sslMode: disable

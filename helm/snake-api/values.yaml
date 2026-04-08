@@ -20,7 +20,7 @@ app:
 db:
   createSecret: false
   secretName: ""
-  existingSecretName: demo-api-db
+  existingSecretName: snake-api-db
   host: ""
   port: "5432"
   name: ""

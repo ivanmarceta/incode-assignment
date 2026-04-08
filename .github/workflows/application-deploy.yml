@@ -18,13 +18,13 @@ permissions:
   packages: write
 
 env:
-  TF_VAR_project: ${{ vars.TF_VAR_PROJECT || 'incode-sre' }}
+  TF_VAR_project: ${{ vars.TF_VAR_PROJECT || 'incode' }}
   TF_VAR_environment: ${{ vars.TF_VAR_ENVIRONMENT || 'dev' }}
   TF_VAR_owner: ${{ vars.TF_VAR_OWNER || github.actor }}
   TF_VAR_repository: ${{ vars.TF_VAR_REPOSITORY || github.repository }}
-  TF_VAR_aws_region: ${{ vars.TF_VAR_AWS_REGION || 'eu-central-1' }}
-  TF_VAR_database_name: ${{ vars.TF_VAR_DATABASE_NAME || 'demoapp' }}
-  APP_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'demo' }}
+  TF_VAR_aws_region: ${{ vars.TF_VAR_AWS_REGION || 'us-east-1' }}
+  TF_VAR_database_name: ${{ vars.TF_VAR_DATABASE_NAME || 'snake' }}
+  APP_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'snake' }}
   FRONTEND_NAMESPACE: ${{ vars.FRONTEND_NAMESPACE || 'frontend' }}
   GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
 
@@ -105,7 +105,7 @@ jobs:
           DB_USER="$(echo "${SECRET_JSON}" | jq -r '.username')"
           DB_PASSWORD="$(echo "${SECRET_JSON}" | jq -r '.password')"
           kubectl create namespace "${APP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-          kubectl create secret generic demo-api-db \
+          kubectl create secret generic snake-api-db \
             --namespace "${APP_NAMESPACE}" \
             --from-literal=host="${{ steps.aws_resources.outputs.rds_endpoint }}" \
             --from-literal=port="${{ steps.aws_resources.outputs.rds_port }}" \
@@ -203,6 +203,6 @@ jobs:
           echo "Cluster:    ${{ steps.aws_resources.outputs.cluster_name }}"
           echo "Backend NS: ${APP_NAMESPACE}"
           echo "Frontend NS:${FRONTEND_NAMESPACE}"
-          echo "DB secret:  demo-api-db"
+          echo "DB secret:  snake-api-db"
           echo "Image:      ${{ steps.image.outputs.image_repo }}:${{ steps.image.outputs.image_tag }}"
           echo "Frontend:   ${{ steps.frontend_endpoint.outputs.frontend_url }}"

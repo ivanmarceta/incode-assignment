@@ -1,119 +1,138 @@
 # Architecture Notes
 
-This document describes the target AWS architecture and the local validation topology used before cloud access is available.
+This document reflects the current repository state and deployed topology.
 
-## Target topology
+## AWS Topology
 
 ```mermaid
 flowchart LR
-    User["Browser User"] --> BackendLB["Public Application Endpoint<br/>Service / LoadBalancer"]
-    BackendLB --> Backend["Snake API Backend + Static Frontend<br/>Helm on EKS"]
-    Backend --> RDS["PostgreSQL on RDS"]
-    Prom["Prometheus"] --> Backend
+    User["Browser User"] --> FrontLB["Frontend Service<br/>AWS LoadBalancer"]
+    FrontLB --> FrontPod["snake-frontend<br/>nginx pod<br/>namespace: frontend"]
+    FrontPod --> BackSvc["snake-api<br/>ClusterIP service<br/>namespace: snake"]
+    BackSvc --> BackPod["snake-api backend pod(s)"]
+    BackPod --> RDS["Amazon RDS PostgreSQL"]
+    Prom["Prometheus"] --> BackSvc
     Graf["Grafana"] --> Prom
 ```
 
-## AWS infrastructure
+## Infrastructure Ownership
 
-The Terraform layer provisions:
+Terraform manages:
 
-- one VPC across two availability zones
-- public subnets for internet-facing access
-- private subnets for EKS worker nodes
-- isolated database subnets for RDS
-- an EKS cluster with a small managed node group
-- a PostgreSQL RDS instance reachable only from the application tier
+- VPC
+- public/private/database subnets
+- EKS cluster
+- EKS managed node group
+- RDS PostgreSQL
 
-The infrastructure entry point is [`envs/dev/main.tf`](../envs/dev/main.tf), which composes:
+Terraform entry point:
+
+- [`envs/dev/main.tf`](../envs/dev/main.tf)
+
+Terraform modules:
 
 - [`modules/network`](../modules/network)
 - [`modules/eks`](../modules/eks)
 - [`modules/rds`](../modules/rds)
 
-## Application topology
+Terraform does not manage the application workloads.
 
-The application consists of:
+## Kubernetes Deployment Model
 
-- a static frontend in [`app/public/index.html`](../app/public/index.html)
-- a backend API in [`backend/server.js`](../backend/server.js)
+Helm manages the runtime workloads.
 
-The frontend assets are bundled into the application container and served by the
-same pod as the API.
+### Backend
 
-## Kubernetes deployment model
+Chart:
 
-The Kubernetes deployment layer is Helm-based.
+- [`helm/snake-api`](../helm/snake-api)
 
-The backend chart is stored in [`helm/snake-api`](../helm/snake-api) and includes:
+Namespace:
 
-- `Deployment`
-- `Service`
-- optional database `Secret`
-- optional `ServiceMonitor`
+- `snake`
 
-Environment-specific values are defined in:
+Service model:
 
-- [`helm/values-local.yaml`](../helm/values-local.yaml)
-- [`helm/values-aws.yaml`](../helm/values-aws.yaml)
+- `ClusterIP`
 
-## Data model
+Responsibilities:
 
-The leaderboard table stores:
+- exposes `/api/scores`
+- exposes `/healthz`
+- exposes `/metrics`
+- connects to PostgreSQL on RDS
+
+### Frontend
+
+Chart:
+
+- [`helm/snake-frontend`](../helm/snake-frontend)
+
+Namespace:
+
+- `frontend`
+
+Service model:
+
+- `LoadBalancer`
+
+Responsibilities:
+
+- serves static frontend assets through nginx
+- proxies `/api/*` to `snake-api.snake.svc.cluster.local`
+
+This keeps the backend private while still giving the browser a simple same-origin public entry point.
+
+## Monitoring
+
+Monitoring components are installed with:
+
+- `prometheus-community/kube-prometheus-stack`
+- [`helm/snake-grafana-dashboards`](../helm/snake-grafana-dashboards)
+
+Namespace:
+
+- `monitoring`
+
+Monitoring is optional in the application workflow, but when enabled it deploys:
+
+- Prometheus
+- Grafana
+- Prometheus Operator components
+- provisioned Grafana dashboard
+
+## Data Model
+
+Leaderboard table columns:
 
 - `id`
 - `username`
 - `highest_score`
 - `updated_at`
 
-Application behavior:
+Behavior:
 
-- `username` is unique
-- a new username creates a row
-- a lower repeated score leaves the stored high score unchanged
-- a higher repeated score updates the stored high score and timestamp
+- each username is unique
+- inserts create a new row
+- lower repeated scores do not overwrite the stored high score
+- higher repeated scores update the high score and timestamp
 
-## Secrets model
+## Secrets Model
 
-For AWS, the PostgreSQL master password is managed by AWS:
+AWS uses RDS-managed master credentials:
 
-- the RDS instance is configured with AWS-managed master credentials
-- AWS generates the password
-- AWS stores the password in Secrets Manager
-- Terraform exposes the resulting secret ARN
+- AWS stores the master password in Secrets Manager
+- application workflow reads the generated secret
+- workflow creates Kubernetes secret `snake-api-db`
+- backend reads `host`, `port`, `dbname`, `username`, and `password` from that secret
 
-This avoids storing the master password in repository-managed variables.
-
-## Observability model
-
-The backend exposes:
-
-- `/healthz`
-- `/metrics`
-
-Prometheus scrapes the backend through a `ServiceMonitor` when enabled. Grafana uses Prometheus as its data source. In AWS, the monitoring stack is deployed by the application workflow rather than the Terraform workflow.
-
-Observed metric categories:
-
-- HTTP request volume and latency
-- health check success and error results
-- leaderboard reads
-- score submission outcomes
-- invalid submission reasons
-- high-score upsert outcomes
-- database query count and latency
-- database connection pool gauges
-
-Additional observability detail is documented in [`docs/observability.md`](./observability.md).
-
-## Local validation topology
-
-Before AWS access is available, the project can be validated locally with Minikube:
+## Local Validation Topology
 
 ```mermaid
 flowchart LR
-    LocalUser["Browser User"] --> LocalFrontend["Static Frontend<br/>python -m http.server"]
-    LocalFrontend --> PF1["kubectl port-forward<br/>snake-api"]
-    PF1 --> LocalAPI["Snake API<br/>Helm in Minikube"]
+    LocalUser["Browser User"] --> LocalFront["Static Frontend<br/>python -m http.server"]
+    LocalFront --> PF1["kubectl port-forward<br/>snake-api"]
+    PF1 --> LocalAPI["snake-api<br/>Helm on Minikube"]
     LocalAPI --> LocalPG["PostgreSQL<br/>localtesting/overlay"]
     PF2["kubectl port-forward<br/>Prometheus"] --> LocalProm["Prometheus"]
     PF3["kubectl port-forward<br/>Grafana"] --> LocalGraf["Grafana"]
@@ -121,49 +140,13 @@ flowchart LR
     LocalGraf --> LocalProm
 ```
 
-The local validation assets are stored in [`localtesting`](../localtesting).
+Local validation assets:
 
-The local workflow:
+- [`localtesting`](../localtesting)
 
-- starts Minikube
-- builds the backend image into Minikube
-- applies the local PostgreSQL manifests
-- installs the backend Helm chart
-- optionally installs `kube-prometheus-stack`
-- writes frontend configuration for local forwarding
-- starts local port-forwards for the backend, Prometheus, and Grafana
+## Design Notes
 
-## Design trade-offs
-
-### Terraform for infrastructure
-
-- reproducible AWS resource definitions
-- clear source of truth for networking, EKS, and RDS
-- straightforward teardown and rebuild workflow
-
-### Helm for Kubernetes deployment
-
-- consistent parameterization across local and AWS environments
-- natural support for optional `ServiceMonitor` resources
-- cleaner packaging than duplicated raw manifests
-
-### Static frontend bundled with the API
-
-- simplest deployment path for this exercise
-- avoids a separate S3 and CloudFront publishing workflow
-- keeps the browser on the same origin as the API
-
-### kube-prometheus-stack
-
-- standard Prometheus Operator deployment model
-- native `ServiceMonitor` support
-- integrated Grafana workflow
-- heavier than a minimal monitoring deployment, but closer to a common production pattern
-
-## Summary
-
-- Terraform manages the AWS foundation: VPC, EKS, and RDS.
-- The frontend is static and hosted separately.
-- The backend runs on Kubernetes and persists highscores in PostgreSQL.
-- Helm manages both the application deployment and the monitoring stack.
-- Prometheus scrapes application metrics and Grafana visualizes HTTP, business, and database behavior.
+- frontend is exposed through a public `LoadBalancer`
+- backend stays private behind `ClusterIP`
+- frontend proxies `/api/*` to the in-cluster backend service
+- `kube-prometheus-stack` is convenient, but on a very small node group it can exhaust pod density

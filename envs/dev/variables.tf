@@ -1,7 +1,7 @@
 variable "project" {
   description = "Short project identifier used in names and tags."
   type        = string
-  default     = "incode-sre"
+  default     = "incode"
 }
 
 variable "environment" {
@@ -13,13 +13,13 @@ variable "environment" {
 variable "owner" {
   description = "Team or person responsible for this environment."
   type        = string
-  default     = "candidate"
+  default     = "ivanmarceta"
 }
 
 variable "repository" {
   description = "Repository URL or name for traceability tags."
   type        = string
-  default     = "https://github.com/example/incode-assignment"
+  default     = "ivanmarceta/incode-assignment"
 }
 
 variable "aws_region" {
@@ -67,7 +67,7 @@ variable "eks_cluster_version" {
 variable "application_namespace" {
   description = "Kubernetes namespace for the demo application."
   type        = string
-  default     = "demo"
+  default     = "snake"
 }
 
 variable "node_group_min_size" {
@@ -97,13 +97,13 @@ variable "node_instance_types" {
 variable "database_name" {
   description = "Application database name."
   type        = string
-  default     = "demoapp"
+  default     = "snake"
 }
 
 variable "database_username" {
   description = "Master username for the database."
   type        = string
-  default     = "appuser"
+  default     = "postgres"
 }
 
 variable "rds_instance_class" {
