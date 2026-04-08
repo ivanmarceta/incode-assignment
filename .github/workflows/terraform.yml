@@ -1,0 +1,84 @@
+name: Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply Terraform after planning
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+  pull_request:
+    paths:
+      - "envs/**"
+      - "modules/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "envs/**"
+      - "modules/**"
+      - ".github/workflows/terraform.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_project: ${{ vars.TF_VAR_PROJECT || 'incode-sre' }}
+  TF_VAR_environment: ${{ vars.TF_VAR_ENVIRONMENT || 'dev' }}
+  TF_VAR_owner: ${{ vars.TF_VAR_OWNER || github.actor }}
+  TF_VAR_repository: ${{ vars.TF_VAR_REPOSITORY || github.repository }}
+  TF_VAR_aws_region: ${{ vars.TF_VAR_AWS_REGION || 'eu-central-1' }}
+  TF_VAR_database_name: ${{ vars.TF_VAR_DATABASE_NAME || 'demoapp' }}
+  TF_VAR_database_username: ${{ vars.TF_VAR_DATABASE_USERNAME || 'appuser' }}
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.TF_VAR_aws_region }}
+
+      - name: Terraform fmt
+        run: terraform -chdir=envs/dev fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform -chdir=envs/dev init
+
+      - name: Terraform validate
+        run: terraform -chdir=envs/dev validate
+
+      - name: Terraform plan
+        run: terraform -chdir=envs/dev plan -out=tfplan
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: envs/dev/tfplan
+
+      - name: Terraform apply
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.apply == 'true'
+        run: terraform -chdir=envs/dev apply -auto-approve tfplan
+
+      - name: Show key outputs
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.apply == 'true'
+        run: terraform -chdir=envs/dev output

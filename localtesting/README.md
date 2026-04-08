@@ -1,15 +1,16 @@
 # Local Testing with Minikube
 
-This directory contains the local-only workflow for validating the backend, PostgreSQL, and optional monitoring stack without AWS access.
+This directory contains the local validation workflow for the backend, PostgreSQL, and optional monitoring stack.
 
-## What this gives you
+## Scope
+
+The local setup provides:
 
 - a dedicated `snake-local` namespace
 - PostgreSQL running inside Minikube
 - the backend API installed through Helm
-- local frontend config generation
 - optional Prometheus and Grafana installed through Helm
-- one-command start and stop scripts
+- helper scripts for local start, stop, and frontend configuration
 
 ## Prerequisites
 
@@ -27,48 +28,52 @@ minikube start --driver=docker
 
 ## One-command local run
 
-Backend + PostgreSQL + frontend:
+Backend, PostgreSQL, and frontend:
 
 ```powershell
 .\localtesting\start-localtest.ps1 -RebuildImage
 ```
 
-Backend + PostgreSQL + frontend + Prometheus + Grafana:
+Backend, PostgreSQL, frontend, Prometheus, and Grafana:
 
 ```powershell
 .\localtesting\start-localtest.ps1 -RebuildImage -WithMonitoring
 ```
 
-The script will:
+The start script performs the following actions:
 
-- start Minikube automatically if needed
-- optionally rebuild the backend image in Minikube
-- apply the local PostgreSQL overlay
-- install the `snake-api` Helm chart into `snake-local`
-- optionally install `kube-prometheus-stack` into `monitoring` before enabling the app `ServiceMonitor`
-- install a Helm-managed Grafana dashboard automatically when monitoring is enabled
-- write [`app/public/config.js`](C:\Users\ivanm\projekti\incode\incode-assignment\app\public\config.js)
-- start a backend port-forward
-- start a static frontend server
-- optionally start Grafana and Prometheus port-forwards
+- starts Minikube if required
+- optionally rebuilds the backend image inside Minikube
+- applies the local PostgreSQL overlay
+- installs the `snake-api` Helm release
+- optionally installs `kube-prometheus-stack`
+- optionally installs the provisioned Grafana dashboard
+- writes `app/public/config.js`
+- starts local port-forwards
+- starts a local static frontend server
 
-## URLs
+## Local URLs
 
-Default local URLs are:
+Default forwarded URLs:
 
 - frontend: `http://localhost:4173`
 - backend: `http://127.0.0.1:18080`
 - Grafana: `http://127.0.0.1:13000`
 - Prometheus: `http://127.0.0.1:19090`
 
-Grafana credentials from [`helm/monitoring-values.yaml`](C:\Users\ivanm\projekti\incode\incode-assignment\helm\monitoring-values.yaml):
+Grafana username:
 
-- username: `admin`
-- password: `admin123`
+- `admin`
 
-The dashboard is provisioned automatically from [`helm/snake-grafana-dashboards`](C:\Users\ivanm\projekti\incode\incode-assignment\helm\snake-grafana-dashboards).
+Grafana password can be read from the generated Kubernetes secret:
 
-## Manual flow
+```powershell
+kubectl get secret monitoring-grafana -n monitoring -o jsonpath="{.data.admin-password}" | %{ [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }
+```
+
+The default dashboard is provisioned from [`../helm/snake-grafana-dashboards`](../helm/snake-grafana-dashboards).
+
+## Manual workflow
 
 Build the backend image into Minikube:
 
@@ -82,13 +87,13 @@ Apply the local PostgreSQL overlay:
 kubectl apply -k .\localtesting\overlay
 ```
 
-Install the backend with Helm:
+Install the backend Helm chart:
 
 ```powershell
 helm upgrade --install snake-api .\helm\snake-api -n snake-local --create-namespace -f .\helm\values-local.yaml
 ```
 
-If Prometheus Operator CRDs are already installed, you can enable the app `ServiceMonitor` too:
+If Prometheus Operator CRDs already exist, enable the `ServiceMonitor`:
 
 ```powershell
 helm upgrade --install snake-api .\helm\snake-api -n snake-local --create-namespace -f .\helm\values-local.yaml --set monitoring.serviceMonitor.enabled=true
@@ -102,26 +107,26 @@ helm repo update
 helm upgrade --install monitoring prometheus-community/kube-prometheus-stack -n monitoring --create-namespace -f .\helm\monitoring-values.yaml
 ```
 
-Port-forward the backend manually if you are not using the start script:
+Port-forward the backend:
 
 ```powershell
 kubectl port-forward svc/snake-api 18080:80 -n snake-local
 ```
 
-Generate local frontend config:
+Generate local frontend configuration:
 
 ```powershell
 .\localtesting\write-frontend-config.ps1
 ```
 
-Serve the frontend manually:
+Serve the frontend:
 
 ```powershell
 cd app\public
 python -m http.server 4173
 ```
 
-## Check health
+## Verification
 
 ```powershell
 kubectl get pods -n snake-local
@@ -130,9 +135,9 @@ kubectl logs deployment/snake-api -n snake-local
 kubectl get servicemonitor -n snake-local
 ```
 
-## Stop everything
+## Shutdown
 
-Stop background processes and Helm releases, and optionally delete namespaces:
+Stop background processes, uninstall Helm releases, and optionally delete namespaces:
 
 ```powershell
 .\localtesting\stop-localtest.ps1 -DeleteNamespace
