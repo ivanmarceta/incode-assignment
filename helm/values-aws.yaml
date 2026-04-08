@@ -2,6 +2,8 @@ image:
   repository: ghcr.io/your-user/incode-snake-backend
   tag: latest
   pullPolicy: Always
+  pullSecrets:
+    - ghcr-pull
 
 service:
   type: LoadBalancer

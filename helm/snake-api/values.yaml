@@ -4,6 +4,7 @@ image:
   repository: incode-snake-backend
   tag: latest
   pullPolicy: IfNotPresent
+  pullSecrets: []
 
 service:
   type: ClusterIP
