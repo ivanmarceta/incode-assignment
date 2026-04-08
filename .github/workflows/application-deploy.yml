@@ -12,7 +12,7 @@ on:
           - "true"
           - "false"
       publish_frontend:
-        description: Publish the static frontend to the Terraform-managed S3 and CloudFront resources
+        description: Publish the static frontend to the S3 and CloudFront
         required: true
         default: "false"
         type: choice
