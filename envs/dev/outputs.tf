@@ -37,18 +37,3 @@ output "rds_master_user_secret_arn" {
   description = "Secrets Manager ARN for the AWS-managed RDS master credential."
   value       = module.rds.master_user_secret_arn
 }
-
-output "frontend_bucket_name" {
-  description = "S3 bucket name used for the static frontend."
-  value       = module.frontend.bucket_name
-}
-
-output "frontend_cloudfront_distribution_id" {
-  description = "CloudFront distribution identifier for the static frontend."
-  value       = module.frontend.cloudfront_distribution_id
-}
-
-output "frontend_cloudfront_domain_name" {
-  description = "CloudFront domain name for the static frontend."
-  value       = module.frontend.cloudfront_domain_name
-}

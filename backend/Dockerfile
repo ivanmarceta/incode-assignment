@@ -2,10 +2,11 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY package.json .
+COPY backend/package.json .
 RUN npm install --omit=dev
 
-COPY server.js .
+COPY backend/server.js .
+COPY app/public ./public
 
 EXPOSE 8080
 

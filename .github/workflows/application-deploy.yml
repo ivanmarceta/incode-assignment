@@ -11,14 +11,6 @@ on:
         options:
           - "true"
           - "false"
-      publish_frontend:
-        description: Publish the static frontend to the S3 and CloudFront
-        required: true
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
 
 permissions:
   id-token: write
@@ -34,8 +26,6 @@ env:
   TF_VAR_database_name: ${{ vars.TF_VAR_DATABASE_NAME || 'demoapp' }}
   APP_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'demo' }}
   GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
-  API_HOSTNAME: ${{ vars.API_HOSTNAME || '' }}
-  API_CERT_ARN: ${{ vars.API_CERT_ARN || '' }}
 
 jobs:
   deploy:
@@ -76,7 +66,7 @@ jobs:
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           IMAGE_REPO="ghcr.io/${OWNER_LC}/incode-snake-backend"
           IMAGE_TAG="${GITHUB_SHA}"
-          docker build -t "${IMAGE_REPO}:${IMAGE_TAG}" -t "${IMAGE_REPO}:latest" ./backend
+          docker build -f backend/Dockerfile -t "${IMAGE_REPO}:${IMAGE_TAG}" -t "${IMAGE_REPO}:latest" .
           docker push "${IMAGE_REPO}:${IMAGE_TAG}"
           docker push "${IMAGE_REPO}:latest"
           {
@@ -92,11 +82,6 @@ jobs:
           NAME_PREFIX="${TF_VAR_project}-${TF_VAR_environment}"
           CLUSTER_NAME="${NAME_PREFIX}-eks"
           DB_IDENTIFIER="${NAME_PREFIX}-postgres"
-          ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
-          FRONTEND_BUCKET="$(echo "${NAME_PREFIX}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')-${ACCOUNT_ID}-${TF_VAR_aws_region}-frontend"
-          FRONTEND_DISTRIBUTIONS_JSON="$(aws cloudfront list-distributions --output json)"
-          FRONTEND_DISTRIBUTION_ID="$(echo "${FRONTEND_DISTRIBUTIONS_JSON}" | jq -r --arg comment "${NAME_PREFIX}-frontend" '.DistributionList.Items[]? | select(.Comment == $comment) | .Id' | head -n1)"
-          FRONTEND_DISTRIBUTION_DOMAIN="$(echo "${FRONTEND_DISTRIBUTIONS_JSON}" | jq -r --arg comment "${NAME_PREFIX}-frontend" '.DistributionList.Items[]? | select(.Comment == $comment) | .DomainName' | head -n1)"
           RDS_ENDPOINT="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].Endpoint.Address' --output text)"
           RDS_PORT="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].Endpoint.Port' --output text)"
           RDS_SECRET_ARN="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)"
@@ -106,9 +91,6 @@ jobs:
             echo "rds_endpoint=${RDS_ENDPOINT}"
             echo "rds_port=${RDS_PORT}"
             echo "rds_secret_arn=${RDS_SECRET_ARN}"
-            echo "frontend_bucket=${FRONTEND_BUCKET}"
-            echo "frontend_distribution_id=${FRONTEND_DISTRIBUTION_ID}"
-            echo "frontend_distribution_domain=${FRONTEND_DISTRIBUTION_DOMAIN}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Update kubeconfig
@@ -180,20 +162,6 @@ jobs:
             --set "image.tag=${{ steps.image.outputs.image_tag }}"
           )
 
-          if [[ -n "${API_HOSTNAME}" ]]; then
-            if [[ -z "${API_CERT_ARN}" ]]; then
-              echo "API_CERT_ARN is required when API_HOSTNAME is configured."
-              exit 1
-            fi
-
-            HELM_ARGS+=(
-              --set ingress.enabled=true
-              --set "ingress.host=${API_HOSTNAME}"
-              --set "ingress.className=alb"
-              --set "ingress.annotations.alb\\.ingress\\.kubernetes\\.io/certificate-arn=${API_CERT_ARN}"
-            )
-          fi
-
           if [[ "${{ github.event.inputs.deploy_monitoring }}" == "true" ]]; then
             HELM_ARGS+=(--set monitoring.serviceMonitor.enabled=true)
           fi
@@ -201,29 +169,22 @@ jobs:
           helm "${HELM_ARGS[@]}"
           kubectl rollout status deployment/snake-api -n "${APP_NAMESPACE}" --timeout=300s
 
-      - name: Publish static frontend to S3
-        if: github.event.inputs.publish_frontend == 'true'
+      - name: Discover public application endpoint
+        id: app_endpoint
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${API_HOSTNAME}" ]]; then
-            echo "API_HOSTNAME must be configured so the frontend can target a stable HTTPS API endpoint."
-            exit 1
-          fi
+          for _ in $(seq 1 30); do
+            APP_HOST="$(kubectl get svc snake-api -n "${APP_NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}')"
+            if [[ -n "${APP_HOST}" ]]; then
+              echo "app_url=http://${APP_HOST}" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            sleep 10
+          done
 
-          if [[ -z "${{ steps.aws_resources.outputs.frontend_bucket }}" || -z "${{ steps.aws_resources.outputs.frontend_distribution_id }}" ]]; then
-            echo "Terraform-managed frontend hosting resources were not found."
-            exit 1
-          fi
-
-          cat > app/public/config.js <<EOF
-          window.SNAKE_CONFIG = {
-            apiBaseUrl: "https://${API_HOSTNAME}"
-          };
-          EOF
-
-          aws s3 sync app/public "s3://${{ steps.aws_resources.outputs.frontend_bucket }}/" --delete
-          aws cloudfront create-invalidation --distribution-id "${{ steps.aws_resources.outputs.frontend_distribution_id }}" --paths "/*"
+          echo "Application LoadBalancer endpoint was not assigned in time."
+          exit 1
 
       - name: Show deployment summary
         shell: bash
@@ -232,4 +193,4 @@ jobs:
           echo "Namespace:  ${APP_NAMESPACE}"
           echo "DB secret:  demo-api-db"
           echo "Image:      ${{ steps.image.outputs.image_repo }}:${{ steps.image.outputs.image_tag }}"
-          echo "Frontend:   https://${{ steps.aws_resources.outputs.frontend_distribution_domain }}"
+          echo "App URL:    ${{ steps.app_endpoint.outputs.app_url }}"

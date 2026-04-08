@@ -6,9 +6,8 @@ This document describes the target AWS architecture and the local validation top
 
 ```mermaid
 flowchart LR
-    User["Browser User"] --> Frontend["Static Frontend<br/>S3 + CloudFront"]
-    Frontend --> BackendLB["Public Backend Endpoint<br/>Ingress / ALB"]
-    BackendLB --> Backend["Snake API Backend<br/>Helm on EKS"]
+    User["Browser User"] --> BackendLB["Public Application Endpoint<br/>Service / LoadBalancer"]
+    BackendLB --> Backend["Snake API Backend + Static Frontend<br/>Helm on EKS"]
     Backend --> RDS["PostgreSQL on RDS"]
     Prom["Prometheus"] --> Backend
     Graf["Grafana"] --> Prom
@@ -24,7 +23,6 @@ The Terraform layer provisions:
 - isolated database subnets for RDS
 - an EKS cluster with a small managed node group
 - a PostgreSQL RDS instance reachable only from the application tier
-- an S3 bucket and CloudFront distribution for static frontend hosting
 
 The infrastructure entry point is [`envs/dev/main.tf`](../envs/dev/main.tf), which composes:
 
@@ -34,12 +32,13 @@ The infrastructure entry point is [`envs/dev/main.tf`](../envs/dev/main.tf), whi
 
 ## Application topology
 
-The application is split into:
+The application consists of:
 
 - a static frontend in [`app/public/index.html`](../app/public/index.html)
 - a backend API in [`backend/server.js`](../backend/server.js)
 
-This separation keeps the static delivery path simple and reserves Kubernetes for the component that requires database connectivity and runtime compute.
+The frontend assets are bundled into the application container and served by the
+same pod as the API.
 
 ## Kubernetes deployment model
 
@@ -49,7 +48,6 @@ The backend chart is stored in [`helm/snake-api`](../helm/snake-api) and include
 
 - `Deployment`
 - `Service`
-- optional `Ingress`
 - optional database `Secret`
 - optional `ServiceMonitor`
 
@@ -149,20 +147,11 @@ The local workflow:
 - natural support for optional `ServiceMonitor` resources
 - cleaner packaging than duplicated raw manifests
 
-### Static frontend outside EKS
+### Static frontend bundled with the API
 
-- lower runtime complexity
-- lower cost for the static tier
-- clearer separation between static delivery and stateful application logic
-
-### Stable API endpoint
-
-- the frontend should talk to a stable HTTPS API hostname rather than a generated
-  service load balancer hostname
-- the recommended AWS model is an ingress-backed ALB with DNS and TLS handled
-  outside the application runtime
-- the application workflow can publish the frontend with a static API base URL
-  once that hostname is known
+- simplest deployment path for this exercise
+- avoids a separate S3 and CloudFront publishing workflow
+- keeps the browser on the same origin as the API
 
 ### kube-prometheus-stack
 
@@ -173,7 +162,7 @@ The local workflow:
 
 ## Summary
 
-- Terraform manages the AWS foundation: VPC, EKS, RDS, and static frontend hosting.
+- Terraform manages the AWS foundation: VPC, EKS, and RDS.
 - The frontend is static and hosted separately.
 - The backend runs on Kubernetes and persists highscores in PostgreSQL.
 - Helm manages both the application deployment and the monitoring stack.

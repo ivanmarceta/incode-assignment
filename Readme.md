@@ -57,8 +57,7 @@ This repository contains a draft solution for the Incode SRE take-home assessmen
 - public, private, and database subnet tiers
 - Amazon EKS with a low-cost managed node group
 - Amazon RDS for PostgreSQL, reachable from the application tier only
-- static frontend hosted on Terraform-managed Amazon S3 and CloudFront
-- backend API deployed as the Kubernetes workload
+- backend API and static frontend deployed together as the Kubernetes workload
 - Prometheus and Grafana deployed with Helm
 
 Additional architecture detail is documented in [`docs/architecture.md`](docs/architecture.md).
@@ -86,7 +85,6 @@ The Terraform entry point is [`envs/dev`](envs/dev). It composes the following m
 - `modules/network`
 - `modules/eks`
 - `modules/rds`
-- `modules/frontend`
 
 This keeps the infrastructure modular while remaining small enough to review and explain during the interview.
 
@@ -126,18 +124,10 @@ The application deployment workflow performs the following tasks:
 
 - builds and pushes the backend image to GHCR
 - discovers the EKS cluster and RDS instance from the configured naming convention
-- discovers the Terraform-managed frontend bucket and CloudFront distribution
 - reads the AWS-managed RDS credential from Secrets Manager
 - creates or updates the Kubernetes secret consumed by the backend
 - deploys the backend via Helm
 - optionally deploys Prometheus, Grafana, and the provisioned dashboard
-- optionally publishes the static frontend to S3 and invalidates CloudFront
-
-Additional repository variables used by the application workflow when exposing the
-API through ingress:
-
-- `API_HOSTNAME`
-- `API_CERT_ARN`
 
 Additional repository secrets used by the application workflow:
 
@@ -149,7 +139,7 @@ The Kubernetes application layer is Helm-based.
 
 Charts in this repository:
 
-- [`helm/snake-api`](helm/snake-api) for the backend API
+- [`helm/snake-api`](helm/snake-api) for the backend API and embedded static frontend
 - [`helm/snake-grafana-dashboards`](helm/snake-grafana-dashboards) for the provisioned Grafana dashboard
 
 Values files:
@@ -227,18 +217,15 @@ The local setup includes:
 ## AWS deployment flow
 
 1. Run the Terraform workflow at [`.github/workflows/terraform.yml`](.github/workflows/terraform.yml).
-2. Confirm that the workflow created the VPC, EKS cluster, RDS instance, AWS-managed RDS credential, S3 bucket, and CloudFront distribution.
-3. Ensure the AWS Load Balancer Controller and its IAM prerequisites are installed in the EKS cluster if you plan to expose the API via ingress.
-4. Run the application workflow at [`.github/workflows/application-deploy.yml`](.github/workflows/application-deploy.yml).
-5. Confirm that the application workflow:
+2. Confirm that the workflow created the VPC, EKS cluster, and RDS instance.
+3. Run the application workflow at [`.github/workflows/application-deploy.yml`](.github/workflows/application-deploy.yml).
+4. Confirm that the application workflow:
    - builds and publishes the backend image
    - reads the RDS credential from Secrets Manager
    - creates or updates the Kubernetes secret `demo-api-db`
    - deploys the backend Helm release
-   - optionally creates an ingress-backed public API endpoint when `API_HOSTNAME` and `API_CERT_ARN` are configured
    - optionally deploys monitoring and dashboard provisioning
-   - optionally publishes the static frontend to the Terraform-managed S3 bucket and invalidates CloudFront
-6. Verify:
+5. Verify:
    - backend connectivity to RDS
    - public application reachability
    - `/healthz` and `/metrics`

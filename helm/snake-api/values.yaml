@@ -12,15 +12,6 @@ service:
   targetPortName: http
   nodePort: null
 
-ingress:
-  enabled: false
-  className: ""
-  annotations: {}
-  host: ""
-  path: /
-  pathType: Prefix
-  tls: []
-
 app:
   port: 8080
   corsOrigin: "*"

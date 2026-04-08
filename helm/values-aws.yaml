@@ -6,22 +6,8 @@ image:
     - ghcr-pull
 
 service:
-  type: ClusterIP
+  type: LoadBalancer
   port: 80
-
-ingress:
-  enabled: false
-  className: alb
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/healthcheck-path: /healthz
-  host: ""
-  path: /
-  pathType: Prefix
-  tls: []
 
 app:
   corsOrigin: "*"
