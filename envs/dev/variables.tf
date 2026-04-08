@@ -85,7 +85,7 @@ variable "node_group_max_size" {
 variable "node_group_desired_size" {
   description = "Desired EKS managed node group size."
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "node_instance_types" {
