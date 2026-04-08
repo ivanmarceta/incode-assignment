@@ -399,7 +399,12 @@ app.get("/", (_request, response) => {
   response.sendFile(path.join(staticDir, "index.html"));
 });
 
-app.get(/^\/(?!api\/|metrics$|healthz$).*/, (_request, response) => {
+app.get(/^\/(?!api\/|metrics$|healthz$).*/, (request, response, next) => {
+  if (path.extname(request.path)) {
+    next();
+    return;
+  }
+
   response.sendFile(path.join(staticDir, "index.html"));
 });
 
