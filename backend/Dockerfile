@@ -6,7 +6,6 @@ COPY backend/package.json .
 RUN npm install --omit=dev
 
 COPY backend/server.js .
-COPY app/public ./public
 
 EXPOSE 8080
 

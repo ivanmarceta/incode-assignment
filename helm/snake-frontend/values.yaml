@@ -1,0 +1,12 @@
+image:
+  repository: nginx
+  tag: "1.27-alpine"
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+  port: 80
+
+config:
+  apiBaseUrl: window.location.origin
+  backendServiceUrl: http://snake-api.snake.svc.cluster.local

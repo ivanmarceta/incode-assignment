@@ -6,7 +6,7 @@ image:
     - ghcr-pull
 
 service:
-  type: LoadBalancer
+  type: ClusterIP
   port: 80
 
 app:

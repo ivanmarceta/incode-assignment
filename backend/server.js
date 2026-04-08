@@ -1,8 +1,6 @@
 import express from "express";
-import path from "path";
 import pg from "pg";
 import client from "prom-client";
-import { fileURLToPath } from "url";
 
 const { Pool } = pg;
 const {
@@ -17,9 +15,6 @@ const port = Number(process.env.PORT || "8080");
 const leaderboardLimit = Number(process.env.LEADERBOARD_LIMIT || "10");
 const corsOrigin = process.env.CORS_ORIGIN || "*";
 const metricsRegistry = new Registry();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const staticDir = path.join(__dirname, "public");
 
 collectDefaultMetrics({ register: metricsRegistry });
 
@@ -179,16 +174,6 @@ app.use((request, response, next) => {
 });
 
 app.use(express.json());
-app.use(express.static(staticDir));
-
-app.get("/config.js", (_request, response) => {
-  response.type("application/javascript");
-  response.send(
-    "window.SNAKE_CONFIG = {\n" +
-      "  apiBaseUrl: window.location.origin\n" +
-      "};\n"
-  );
-});
 
 app.get("/metrics", async (_request, response) => {
   response.set("Content-Type", metricsRegistry.contentType);
@@ -402,19 +387,6 @@ app.post("/api/scores", async (request, response) => {
     scoreSubmissionCounter.inc({ result: "error" });
     response.status(500).json({ message: "failed to save score" });
   }
-});
-
-app.get("/", (_request, response) => {
-  response.sendFile(path.join(staticDir, "index.html"));
-});
-
-app.get(/^\/(?!api\/|metrics$|healthz$).*/, (request, response, next) => {
-  if (path.extname(request.path)) {
-    next();
-    return;
-  }
-
-  response.sendFile(path.join(staticDir, "index.html"));
 });
 
 app.use((_request, response) => {

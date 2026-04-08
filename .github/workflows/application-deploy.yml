@@ -25,6 +25,7 @@ env:
   TF_VAR_aws_region: ${{ vars.TF_VAR_AWS_REGION || 'eu-central-1' }}
   TF_VAR_database_name: ${{ vars.TF_VAR_DATABASE_NAME || 'demoapp' }}
   APP_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'demo' }}
+  FRONTEND_NAMESPACE: ${{ vars.FRONTEND_NAMESPACE || 'frontend' }}
   GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
 
 jobs:
@@ -146,7 +147,7 @@ jobs:
           kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=300s
           helm upgrade --install snake-grafana-dashboards ./helm/snake-grafana-dashboards -n monitoring
 
-      - name: Deploy application with Helm
+      - name: Deploy backend with Helm
         shell: bash
         run: |
           set -euo pipefail
@@ -169,28 +170,39 @@ jobs:
           helm "${HELM_ARGS[@]}"
           kubectl rollout status deployment/snake-api -n "${APP_NAMESPACE}" --timeout=300s
 
-      - name: Discover public application endpoint
-        id: app_endpoint
+      - name: Deploy frontend with Helm
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl create namespace "${FRONTEND_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          helm upgrade --install snake-frontend ./helm/snake-frontend \
+            -n "${FRONTEND_NAMESPACE}" \
+            --create-namespace
+          kubectl rollout status deployment/snake-frontend -n "${FRONTEND_NAMESPACE}" --timeout=300s
+
+      - name: Discover public frontend endpoint
+        id: frontend_endpoint
         shell: bash
         run: |
           set -euo pipefail
           for _ in $(seq 1 30); do
-            APP_HOST="$(kubectl get svc snake-api -n "${APP_NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}')"
-            if [[ -n "${APP_HOST}" ]]; then
-              echo "app_url=http://${APP_HOST}" >> "${GITHUB_OUTPUT}"
+            FRONTEND_HOST="$(kubectl get svc snake-frontend -n "${FRONTEND_NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}')"
+            if [[ -n "${FRONTEND_HOST}" ]]; then
+              echo "frontend_url=http://${FRONTEND_HOST}" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
             sleep 10
           done
 
-          echo "Application LoadBalancer endpoint was not assigned in time."
+          echo "Frontend LoadBalancer endpoint was not assigned in time."
           exit 1
 
       - name: Show deployment summary
         shell: bash
         run: |
           echo "Cluster:    ${{ steps.aws_resources.outputs.cluster_name }}"
-          echo "Namespace:  ${APP_NAMESPACE}"
+          echo "Backend NS: ${APP_NAMESPACE}"
+          echo "Frontend NS:${FRONTEND_NAMESPACE}"
           echo "DB secret:  demo-api-db"
           echo "Image:      ${{ steps.image.outputs.image_repo }}:${{ steps.image.outputs.image_tag }}"
-          echo "App URL:    ${{ steps.app_endpoint.outputs.app_url }}"
+          echo "Frontend:   ${{ steps.frontend_endpoint.outputs.frontend_url }}"
