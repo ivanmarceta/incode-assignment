@@ -9,6 +9,12 @@ data:
     window.SNAKE_CONFIG = {
       apiBaseUrl: {{ .Values.config.apiBaseUrl }}
     };
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-nginx
+data:
   default.conf: |
     server {
       listen 80;
