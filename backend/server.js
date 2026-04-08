@@ -181,6 +181,15 @@ app.use((request, response, next) => {
 app.use(express.json());
 app.use(express.static(staticDir));
 
+app.get("/config.js", (_request, response) => {
+  response.type("application/javascript");
+  response.send(
+    "window.SNAKE_CONFIG = {\n" +
+      "  apiBaseUrl: window.location.origin\n" +
+      "};\n"
+  );
+});
+
 app.get("/metrics", async (_request, response) => {
   response.set("Content-Type", metricsRegistry.contentType);
   response.end(await metricsRegistry.metrics());
