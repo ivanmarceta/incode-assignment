@@ -192,6 +192,10 @@ resource "aws_eks_addon" "coredns" {
   addon_name                  = "coredns"
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
+
+  depends_on = [
+    aws_eks_node_group.managed
+  ]
 }
 
 resource "aws_eks_addon" "kube_proxy" {
@@ -249,9 +253,7 @@ resource "aws_eks_node_group" "managed" {
     aws_iam_role_policy_attachment.node_worker_policy,
     aws_iam_role_policy_attachment.node_cni_policy,
     aws_iam_role_policy_attachment.node_ecr_policy,
-    aws_eks_addon.vpc_cni,
-    aws_eks_addon.coredns,
-    aws_eks_addon.kube_proxy
+    aws_eks_cluster.cluster
   ]
 
   tags = merge(
