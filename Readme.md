@@ -90,6 +90,8 @@ The Terraform entry point is [`envs/dev`](envs/dev). It composes the following m
 
 This keeps the infrastructure modular while remaining small enough to review and explain during the interview.
 
+Terraform state is stored in an S3 backend with S3 lockfile support enabled.
+
 ## GitHub Actions workflows
 
 The repository uses separate workflows for infrastructure and application deployment:
@@ -109,6 +111,11 @@ Repository variables used by the workflows:
 - `TF_VAR_DATABASE_NAME`
 - `TF_VAR_DATABASE_USERNAME`
 - `K8S_NAMESPACE`
+- `TF_STATE_BUCKET`
+
+Optional repository variables:
+
+- `TF_STATE_KEY` (defaults to `envs/dev/terraform.tfstate`)
 
 Repository secrets used by the workflows:
 
@@ -229,7 +236,7 @@ The local setup includes:
 
 ## Assumptions
 
-- initial region is `eu-central-1`
+- initial region is `us-east-1`
 - two availability zones are sufficient for this exercise
 - cost efficiency is prioritized over high availability
 - the frontend is better hosted as a static site outside the cluster
