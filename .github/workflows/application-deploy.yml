@@ -34,6 +34,8 @@ env:
   TF_VAR_database_name: ${{ vars.TF_VAR_DATABASE_NAME || 'demoapp' }}
   APP_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'demo' }}
   GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
+  API_HOSTNAME: ${{ vars.API_HOSTNAME || '' }}
+  API_CERT_ARN: ${{ vars.API_CERT_ARN || '' }}
 
 jobs:
   deploy:
@@ -178,6 +180,20 @@ jobs:
             --set "image.tag=${{ steps.image.outputs.image_tag }}"
           )
 
+          if [[ -n "${API_HOSTNAME}" ]]; then
+            if [[ -z "${API_CERT_ARN}" ]]; then
+              echo "API_CERT_ARN is required when API_HOSTNAME is configured."
+              exit 1
+            fi
+
+            HELM_ARGS+=(
+              --set ingress.enabled=true
+              --set "ingress.host=${API_HOSTNAME}"
+              --set "ingress.className=alb"
+              --set "ingress.annotations.alb\\.ingress\\.kubernetes\\.io/certificate-arn=${API_CERT_ARN}"
+            )
+          fi
+
           if [[ "${{ github.event.inputs.deploy_monitoring }}" == "true" ]]; then
             HELM_ARGS+=(--set monitoring.serviceMonitor.enabled=true)
           fi
@@ -190,16 +206,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for _ in $(seq 1 30); do
-            API_HOST="$(kubectl get svc snake-api -n "${APP_NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}')"
-            if [[ -n "${API_HOST}" ]]; then
-              break
-            fi
-            sleep 10
-          done
-
-          if [[ -z "${API_HOST:-}" ]]; then
-            echo "Backend LoadBalancer endpoint was not assigned in time."
+          if [[ -z "${API_HOSTNAME}" ]]; then
+            echo "API_HOSTNAME must be configured so the frontend can target a stable HTTPS API endpoint."
             exit 1
           fi
 
@@ -210,7 +218,7 @@ jobs:
 
           cat > app/public/config.js <<EOF
           window.SNAKE_CONFIG = {
-            apiBaseUrl: "http://${API_HOST}"
+            apiBaseUrl: "https://${API_HOSTNAME}"
           };
           EOF
 

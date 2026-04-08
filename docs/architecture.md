@@ -7,7 +7,7 @@ This document describes the target AWS architecture and the local validation top
 ```mermaid
 flowchart LR
     User["Browser User"] --> Frontend["Static Frontend<br/>S3 + CloudFront"]
-    Frontend --> BackendLB["Public Backend Endpoint<br/>Service / LoadBalancer / Ingress"]
+    Frontend --> BackendLB["Public Backend Endpoint<br/>Ingress / ALB"]
     BackendLB --> Backend["Snake API Backend<br/>Helm on EKS"]
     Backend --> RDS["PostgreSQL on RDS"]
     Prom["Prometheus"] --> Backend
@@ -49,6 +49,7 @@ The backend chart is stored in [`helm/snake-api`](../helm/snake-api) and include
 
 - `Deployment`
 - `Service`
+- optional `Ingress`
 - optional database `Secret`
 - optional `ServiceMonitor`
 
@@ -153,6 +154,15 @@ The local workflow:
 - lower runtime complexity
 - lower cost for the static tier
 - clearer separation between static delivery and stateful application logic
+
+### Stable API endpoint
+
+- the frontend should talk to a stable HTTPS API hostname rather than a generated
+  service load balancer hostname
+- the recommended AWS model is an ingress-backed ALB with DNS and TLS handled
+  outside the application runtime
+- the application workflow can publish the frontend with a static API base URL
+  once that hostname is known
 
 ### kube-prometheus-stack
 
