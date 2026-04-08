@@ -86,3 +86,10 @@ module "rds" {
   backup_retention_period = var.rds_backup_retention_period
   tags                    = local.tags
 }
+
+module "frontend" {
+  source = "../../modules/frontend"
+
+  name_prefix = local.name_prefix
+  tags        = local.tags
+}

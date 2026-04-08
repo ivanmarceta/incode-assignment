@@ -92,7 +92,7 @@ resource "aws_security_group" "cluster" {
   tags = merge(
     var.tags,
     {
-      Name                                 = "${var.name_prefix}-eks-cluster-sg"
+      Name                                          = "${var.name_prefix}-eks-cluster-sg"
       "kubernetes.io/cluster/${local.cluster_name}" = local.cluster_security_tag
     }
   )
@@ -114,7 +114,7 @@ resource "aws_security_group" "node" {
   tags = merge(
     var.tags,
     {
-      Name                                 = "${var.name_prefix}-eks-node-sg"
+      Name                                          = "${var.name_prefix}-eks-node-sg"
       "kubernetes.io/cluster/${local.cluster_name}" = local.cluster_security_tag
     }
   )
@@ -221,8 +221,8 @@ resource "aws_eks_node_group" "managed" {
   capacity_type = "ON_DEMAND"
 
   labels = {
-    workload   = "general"
-    namespace  = var.kubernetes_namespace
+    workload  = "general"
+    namespace = var.kubernetes_namespace
   }
 
   launch_template {
@@ -258,7 +258,7 @@ resource "aws_launch_template" "node" {
     tags = merge(
       var.tags,
       {
-        Name                                 = "${var.name_prefix}-eks-node"
+        Name                                          = "${var.name_prefix}-eks-node"
         "kubernetes.io/cluster/${local.cluster_name}" = local.cluster_security_tag
       }
     )

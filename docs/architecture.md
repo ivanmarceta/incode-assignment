@@ -6,7 +6,7 @@ This document describes the target AWS architecture and the local validation top
 
 ```mermaid
 flowchart LR
-    User["Browser User"] --> Frontend["Static Frontend<br/>S3 + CloudFront or similar"]
+    User["Browser User"] --> Frontend["Static Frontend<br/>S3 + CloudFront"]
     Frontend --> BackendLB["Public Backend Endpoint<br/>Service / LoadBalancer / Ingress"]
     BackendLB --> Backend["Snake API Backend<br/>Helm on EKS"]
     Backend --> RDS["PostgreSQL on RDS"]
@@ -24,6 +24,7 @@ The Terraform layer provisions:
 - isolated database subnets for RDS
 - an EKS cluster with a small managed node group
 - a PostgreSQL RDS instance reachable only from the application tier
+- an S3 bucket and CloudFront distribution for static frontend hosting
 
 The infrastructure entry point is [`envs/dev/main.tf`](../envs/dev/main.tf), which composes:
 
@@ -162,7 +163,7 @@ The local workflow:
 
 ## Summary
 
-- Terraform manages the AWS foundation: VPC, EKS, and RDS.
+- Terraform manages the AWS foundation: VPC, EKS, RDS, and static frontend hosting.
 - The frontend is static and hosted separately.
 - The backend runs on Kubernetes and persists highscores in PostgreSQL.
 - Helm manages both the application deployment and the monitoring stack.

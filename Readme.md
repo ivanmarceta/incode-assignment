@@ -40,6 +40,7 @@ This repository contains a draft solution for the Incode SRE take-home assessmen
 |   `-- write-frontend-config.ps1
 |-- modules/
 |   |-- eks/
+|   |-- frontend/
 |   |-- network/
 |   `-- rds/
 |-- .github/
@@ -56,7 +57,7 @@ This repository contains a draft solution for the Incode SRE take-home assessmen
 - public, private, and database subnet tiers
 - Amazon EKS with a low-cost managed node group
 - Amazon RDS for PostgreSQL, reachable from the application tier only
-- static frontend hosted separately from the cluster
+- static frontend hosted on Terraform-managed Amazon S3 and CloudFront
 - backend API deployed as the Kubernetes workload
 - Prometheus and Grafana deployed with Helm
 
@@ -85,6 +86,7 @@ The Terraform entry point is [`envs/dev`](envs/dev). It composes the following m
 - `modules/network`
 - `modules/eks`
 - `modules/rds`
+- `modules/frontend`
 
 This keeps the infrastructure modular while remaining small enough to review and explain during the interview.
 
@@ -94,6 +96,8 @@ The repository uses separate workflows for infrastructure and application deploy
 
 - Terraform workflow: [`.github/workflows/terraform.yml`](.github/workflows/terraform.yml)
 - application deployment workflow: [`.github/workflows/application-deploy.yml`](.github/workflows/application-deploy.yml)
+
+Both workflows are intended for ad hoc execution through `workflow_dispatch`.
 
 Repository variables used by the workflows:
 
@@ -106,11 +110,6 @@ Repository variables used by the workflows:
 - `TF_VAR_DATABASE_USERNAME`
 - `K8S_NAMESPACE`
 
-Optional repository variables for frontend publishing:
-
-- `FRONTEND_BUCKET_NAME`
-- `CLOUDFRONT_DISTRIBUTION_ID`
-
 Repository secrets used by the workflows:
 
 - `AWS_ROLE_ARN`
@@ -120,6 +119,7 @@ The application deployment workflow performs the following tasks:
 
 - builds and pushes the backend image to GHCR
 - discovers the EKS cluster and RDS instance from the configured naming convention
+- discovers the Terraform-managed frontend bucket and CloudFront distribution
 - reads the AWS-managed RDS credential from Secrets Manager
 - creates or updates the Kubernetes secret consumed by the backend
 - deploys the backend via Helm
@@ -210,7 +210,7 @@ The local setup includes:
 ## AWS deployment flow
 
 1. Run the Terraform workflow at [`.github/workflows/terraform.yml`](.github/workflows/terraform.yml).
-2. Confirm that the workflow created the VPC, EKS cluster, RDS instance, and AWS-managed RDS credential.
+2. Confirm that the workflow created the VPC, EKS cluster, RDS instance, AWS-managed RDS credential, S3 bucket, and CloudFront distribution.
 3. Run the application workflow at [`.github/workflows/application-deploy.yml`](.github/workflows/application-deploy.yml).
 4. Confirm that the application workflow:
    - builds and publishes the backend image
@@ -218,7 +218,7 @@ The local setup includes:
    - creates or updates the Kubernetes secret `demo-api-db`
    - deploys the backend Helm release
    - optionally deploys monitoring and dashboard provisioning
-   - optionally publishes the static frontend
+   - optionally publishes the static frontend to the Terraform-managed S3 bucket and invalidates CloudFront
 5. Verify:
    - backend connectivity to RDS
    - public application reachability
