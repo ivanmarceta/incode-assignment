@@ -1,0 +1,29 @@
+project                     = "incode-sre"
+environment                 = "dev"
+owner                       = "your-name"
+repository                  = "https://github.com/your-user/incode-assignment"
+aws_region                  = "eu-central-1"
+availability_zones          = ["eu-central-1a", "eu-central-1b"]
+vpc_cidr                    = "10.20.0.0/16"
+public_subnet_cidrs         = ["10.20.0.0/24", "10.20.1.0/24"]
+private_subnet_cidrs        = ["10.20.10.0/24", "10.20.11.0/24"]
+database_subnet_cidrs       = ["10.20.20.0/24", "10.20.21.0/24"]
+eks_cluster_version         = "1.33"
+application_namespace       = "demo"
+node_group_desired_size     = 1
+node_group_min_size         = 1
+node_group_max_size         = 2
+node_instance_types         = ["t3.small"]
+database_name               = "demoapp"
+database_username           = "appuser"
+rds_instance_class          = "db.t4g.micro"
+rds_allocated_storage       = 20
+rds_engine_version          = "16.3"
+rds_multi_az                = false
+rds_deletion_protection     = false
+rds_skip_final_snapshot     = true
+rds_backup_retention_period = 1
+
+extra_tags = {
+  CostCenter = "take-home"
+}

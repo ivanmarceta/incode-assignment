@@ -1,0 +1,44 @@
+replicaCount: 1
+
+image:
+  repository: incode-snake-backend
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPortName: http
+  nodePort: null
+
+app:
+  port: 8080
+  corsOrigin: "*"
+  leaderboardLimit: 10
+
+db:
+  createSecret: false
+  secretName: ""
+  existingSecretName: demo-api-db
+  host: ""
+  port: "5432"
+  name: ""
+  username: ""
+  password: ""
+  sslMode: disable
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 192Mi
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    scrapeTimeout: 5s
+    path: /metrics
+    additionalLabels: {}
