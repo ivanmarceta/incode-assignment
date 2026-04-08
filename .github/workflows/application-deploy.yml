@@ -146,7 +146,7 @@ jobs:
           kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=300s
           helm upgrade --install snake-grafana-dashboards ./helm/snake-grafana-dashboards -n monitoring
 
-      - name: Deploy backend with Helm
+      - name: Deploy application with Helm
         shell: bash
         run: |
           set -euo pipefail
