@@ -21,31 +21,16 @@ variable "availability_zones" {
 variable "public_subnet_cidrs" {
   description = "CIDR blocks for public subnets."
   type        = list(string)
-
-  validation {
-    condition     = length(var.public_subnet_cidrs) == length(var.availability_zones)
-    error_message = "The number of public subnet CIDRs must match the number of availability zones."
-  }
 }
 
 variable "private_subnet_cidrs" {
   description = "CIDR blocks for worker node subnets."
   type        = list(string)
-
-  validation {
-    condition     = length(var.private_subnet_cidrs) == length(var.availability_zones)
-    error_message = "The number of private subnet CIDRs must match the number of availability zones."
-  }
 }
 
 variable "database_subnet_cidrs" {
   description = "CIDR blocks for database subnets."
   type        = list(string)
-
-  validation {
-    condition     = length(var.database_subnet_cidrs) == length(var.availability_zones)
-    error_message = "The number of database subnet CIDRs must match the number of availability zones."
-  }
 }
 
 variable "enable_nat_gateway" {

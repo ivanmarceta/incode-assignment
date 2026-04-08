@@ -208,6 +208,21 @@ resource "aws_eks_node_group" "managed" {
   subnet_ids      = var.private_subnet_ids
   instance_types  = var.node_instance_types
 
+  lifecycle {
+    precondition {
+      condition     = var.node_group_max_size >= var.node_group_min_size
+      error_message = "The maximum node count must be greater than or equal to the minimum node count."
+    }
+
+    precondition {
+      condition = (
+        var.node_group_desired_size >= var.node_group_min_size &&
+        var.node_group_desired_size <= var.node_group_max_size
+      )
+      error_message = "The desired node count must be between the minimum and maximum values."
+    }
+  }
+
   scaling_config {
     desired_size = var.node_group_desired_size
     min_size     = var.node_group_min_size

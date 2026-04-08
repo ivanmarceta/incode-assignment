@@ -21,6 +21,23 @@ resource "aws_vpc" "main" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
+  lifecycle {
+    precondition {
+      condition     = length(var.public_subnet_cidrs) == length(var.availability_zones)
+      error_message = "The number of public subnet CIDRs must match the number of availability zones."
+    }
+
+    precondition {
+      condition     = length(var.private_subnet_cidrs) == length(var.availability_zones)
+      error_message = "The number of private subnet CIDRs must match the number of availability zones."
+    }
+
+    precondition {
+      condition     = length(var.database_subnet_cidrs) == length(var.availability_zones)
+      error_message = "The number of database subnet CIDRs must match the number of availability zones."
+    }
+  }
+
   tags = merge(
     var.tags,
     {

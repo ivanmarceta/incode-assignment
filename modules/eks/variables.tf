@@ -46,24 +46,11 @@ variable "node_group_min_size" {
 variable "node_group_max_size" {
   description = "Maximum node count."
   type        = number
-
-  validation {
-    condition     = var.node_group_max_size >= var.node_group_min_size
-    error_message = "The maximum node count must be greater than or equal to the minimum node count."
-  }
 }
 
 variable "node_group_desired_size" {
   description = "Desired node count."
   type        = number
-
-  validation {
-    condition = (
-      var.node_group_desired_size >= var.node_group_min_size &&
-      var.node_group_desired_size <= var.node_group_max_size
-    )
-    error_message = "The desired node count must be between the minimum and maximum values."
-  }
 }
 
 variable "node_instance_types" {
