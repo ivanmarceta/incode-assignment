@@ -12,7 +12,7 @@ on:
           - "true"
           - "false"
       publish_frontend:
-        description: Publish the static frontend to S3 if bucket variables are configured
+        description: Publish the static frontend to the Terraform-managed S3 and CloudFront resources
         required: true
         default: "false"
         type: choice
@@ -89,6 +89,11 @@ jobs:
           NAME_PREFIX="${TF_VAR_project}-${TF_VAR_environment}"
           CLUSTER_NAME="${NAME_PREFIX}-eks"
           DB_IDENTIFIER="${NAME_PREFIX}-postgres"
+          ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
+          FRONTEND_BUCKET="$(echo "${NAME_PREFIX}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')-${ACCOUNT_ID}-${TF_VAR_aws_region}-frontend"
+          FRONTEND_DISTRIBUTIONS_JSON="$(aws cloudfront list-distributions --output json)"
+          FRONTEND_DISTRIBUTION_ID="$(echo "${FRONTEND_DISTRIBUTIONS_JSON}" | jq -r --arg comment "${NAME_PREFIX}-frontend" '.DistributionList.Items[]? | select(.Comment == $comment) | .Id' | head -n1)"
+          FRONTEND_DISTRIBUTION_DOMAIN="$(echo "${FRONTEND_DISTRIBUTIONS_JSON}" | jq -r --arg comment "${NAME_PREFIX}-frontend" '.DistributionList.Items[]? | select(.Comment == $comment) | .DomainName' | head -n1)"
           RDS_ENDPOINT="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].Endpoint.Address' --output text)"
           RDS_PORT="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].Endpoint.Port' --output text)"
           RDS_SECRET_ARN="$(aws rds describe-db-instances --db-instance-identifier "${DB_IDENTIFIER}" --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)"
@@ -98,6 +103,9 @@ jobs:
             echo "rds_endpoint=${RDS_ENDPOINT}"
             echo "rds_port=${RDS_PORT}"
             echo "rds_secret_arn=${RDS_SECRET_ARN}"
+            echo "frontend_bucket=${FRONTEND_BUCKET}"
+            echo "frontend_distribution_id=${FRONTEND_DISTRIBUTION_ID}"
+            echo "frontend_distribution_domain=${FRONTEND_DISTRIBUTION_DOMAIN}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Update kubeconfig
@@ -157,7 +165,7 @@ jobs:
           kubectl rollout status deployment/snake-api -n "${APP_NAMESPACE}" --timeout=300s
 
       - name: Publish static frontend to S3
-        if: github.event.inputs.publish_frontend == 'true' && vars.FRONTEND_BUCKET_NAME != ''
+        if: github.event.inputs.publish_frontend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -174,17 +182,19 @@ jobs:
             exit 1
           fi
 
+          if [[ -z "${{ steps.aws_resources.outputs.frontend_bucket }}" || -z "${{ steps.aws_resources.outputs.frontend_distribution_id }}" ]]; then
+            echo "Terraform-managed frontend hosting resources were not found."
+            exit 1
+          fi
+
           cat > app/public/config.js <<EOF
           window.SNAKE_CONFIG = {
             apiBaseUrl: "http://${API_HOST}"
           };
           EOF
 
-          aws s3 sync app/public "s3://${{ vars.FRONTEND_BUCKET_NAME }}/" --delete
-
-          if [[ -n "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" ]]; then
-            aws cloudfront create-invalidation --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/*"
-          fi
+          aws s3 sync app/public "s3://${{ steps.aws_resources.outputs.frontend_bucket }}/" --delete
+          aws cloudfront create-invalidation --distribution-id "${{ steps.aws_resources.outputs.frontend_distribution_id }}" --paths "/*"
 
       - name: Show deployment summary
         shell: bash
@@ -193,3 +203,4 @@ jobs:
           echo "Namespace:  ${APP_NAMESPACE}"
           echo "DB secret:  demo-api-db"
           echo "Image:      ${{ steps.image.outputs.image_repo }}:${{ steps.image.outputs.image_tag }}"
+          echo "Frontend:   https://${{ steps.aws_resources.outputs.frontend_distribution_domain }}"
